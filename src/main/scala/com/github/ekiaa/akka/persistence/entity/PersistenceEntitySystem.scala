@@ -9,7 +9,6 @@ object PersistenceEntitySystem extends ExtensionId[PersistenceEntitySystemExtens
   private var entityBuilder: Option[EntityBuilder] = None
 
   def registerEntityBuilder(builder: EntityBuilder): Unit = {
-    require(entityBuilder.isEmpty, "PersistenceEntitySystem: entityBuilder should not be registered when registerEntityBuilder invoked")
     entityBuilder = Some(builder)
   }
 
@@ -21,7 +20,6 @@ object PersistenceEntitySystem extends ExtensionId[PersistenceEntitySystemExtens
   private var extensionFactory: Option[ExtensionFactory] = None
 
   def registerExtensionFactory(factory: ExtensionFactory): Unit = {
-    require(extensionFactory.isEmpty, "PersistenceEntitySystem: extensionFactory should not be registered when registerExtensionFactory invoked")
     extensionFactory = Some(factory)
   }
 

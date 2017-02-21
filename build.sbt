@@ -34,7 +34,9 @@ libraryDependencies ++= Seq(
   "joda-time" % "joda-time" % "2.7",
   "org.joda" % "joda-convert" % "1.8",
   "com.github.tototoshi" %% "slick-joda-mapper" % "2.1.0",
-  "com.github.tminglei" %% "slick-pg" % "0.10.0"
+  "com.github.tminglei" %% "slick-pg" % "0.10.0",
+
+  "org.mockito" % "mockito-core" % "2.7.10" % "test"
 )
 
 resolvers += "Sonatype OSS" at "https://oss.sonatype.org/content/repositories/releases/"
