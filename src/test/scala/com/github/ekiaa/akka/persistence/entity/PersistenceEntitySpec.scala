@@ -2,14 +2,13 @@ package com.github.ekiaa.akka.persistence.entity
 
 import java.util.UUID
 
-import akka.actor.{ActorContext, ActorRef, ActorSystem, ExtendedActorSystem, Props}
+import akka.actor.{ActorContext, ActorSystem}
 import akka.testkit.{ImplicitSender, TestKit}
-import com.github.ekiaa.akka.persistence.entity._
 import com.typesafe.config.ConfigFactory
+import org.mockito.ArgumentMatchers._
+import org.mockito.Mockito._
 import org.scalatest.mock.MockitoSugar
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
-import org.mockito.Mockito._
-import org.mockito.ArgumentMatchers._
 
 
 class PersistenceEntitySpec
@@ -18,6 +17,7 @@ class PersistenceEntitySpec
       ConfigFactory.parseString(
         """akka.persistence.journal.plugin = "akka.persistence.journal.leveldb"
           |akka.persistence.journal.leveldb.dir = "target/journal"
+          |akka.persistence.journal.leveldb.native = off
           |akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.local"
           |akka.persistence.snapshot-store.local.dir = "target/snapshots"
         """.stripMargin
@@ -39,31 +39,33 @@ class PersistenceEntitySpec
 
       "invoke handleIncomingRequest method of Entity" in {
 
-        val extension = mock[PersistenceEntitySystemExtension]
-        PersistenceEntitySystem.registerExtensionFactory({_ => extension})
+        val requesterEntityId = mock[EntityId](withSettings().serializable())
 
-        val builder = mock[EntityBuilder]
-        PersistenceEntitySystem.registerEntityBuilder(builder)
-
-        system.registerExtension(PersistenceEntitySystem)
+        val reactorEntityId = mock[EntityId](withSettings().serializable())
+        when(reactorEntityId.persistenceId).thenReturn(UUID.randomUUID().toString)
 
         val entity = mock[Entity]
-        when(builder.build(any[EntityId](), any[Option[Entity]]())).thenReturn(entity)
+        when(entity.entityId).thenReturn(reactorEntityId)
 
-        val requesterEntityId = new TestEntityId(UUID.randomUUID().toString)
-        val reactorEntityId = new TestEntityId(UUID.randomUUID().toString)
+        val persistenceEntitySystem = mock[PersistenceEntitySystem]
+        when(persistenceEntitySystem.build(any[EntityId], any[Option[Entity]])).thenReturn(entity)
+        doNothing().when(persistenceEntitySystem).sendMessage(any[Message])(any[ActorContext])
 
-        when(entity.handleIncomingRequest(any[Request]())).thenReturn(Ignore(entity))
+        val response = mock[Response](withSettings().serializable())
 
-        val persistenceEntityActor = system.actorOf(Props(classOf[PersistenceEntity], reactorEntityId))
+        when(entity.handleIncomingRequest(any[Request])).thenReturn(ResponseToActor(response, entity))
+
+        val persistenceEntityActor = system.actorOf(PersistenceEntity.props(reactorEntityId, persistenceEntitySystem))
+
+        val request = mock[Request](withSettings().serializable())
 
         persistenceEntityActor ! RequestMessage(
           requesterId = requesterEntityId,
           reactorId = reactorEntityId,
-          request = TestRequest
+          request = request
         )
 
-        verify(entity, timeout(1000)).handleIncomingRequest(any[Request]())
+        verify(entity, timeout(10000)).handleIncomingRequest(any[Request]())
 
       }
 
@@ -75,31 +77,33 @@ class PersistenceEntitySpec
 
         "invoke sendMessage method of PersistenceEntitySystemExtension" in {
 
-          val extension = mock[PersistenceEntitySystemExtension]
-          PersistenceEntitySystem.registerExtensionFactory({_ => extension})
+          val requesterEntityId = mock[EntityId](withSettings().serializable())
+          when(requesterEntityId.persistenceId).thenReturn(UUID.randomUUID().toString)
 
-          val builder = mock[EntityBuilder]
-          PersistenceEntitySystem.registerEntityBuilder(builder)
-
-          system.registerExtension(PersistenceEntitySystem)
+          val reactorEntityId = mock[EntityId](withSettings().serializable())
+          when(reactorEntityId.persistenceId).thenReturn(UUID.randomUUID().toString)
 
           val entity = mock[Entity]
-          when(builder.build(any[EntityId](), any[Option[Entity]]())).thenReturn(entity)
+          when(entity.entityId).thenReturn(reactorEntityId)
 
-          val requesterEntityId = new TestEntityId(UUID.randomUUID().toString)
-          val reactorEntityId = new TestEntityId(UUID.randomUUID().toString)
+          val persistenceEntitySystem = mock[PersistenceEntitySystem]
+          when(persistenceEntitySystem.build(any[EntityId], any[Option[Entity]])).thenReturn(entity)
 
-          when(entity.handleIncomingRequest(any[Request]())).thenReturn(ResponseToActor(TestResponse, entity))
+          val response = mock[Response](withSettings().serializable())
 
-          val persistenceEntityActor = system.actorOf(Props(classOf[PersistenceEntity], reactorEntityId))
+          when(entity.handleIncomingRequest(any[Request])).thenReturn(ResponseToActor(response, entity))
+
+          val persistenceEntityActor = system.actorOf(PersistenceEntity.props(reactorEntityId, persistenceEntitySystem))
+
+          val request = mock[Request](withSettings().serializable())
 
           persistenceEntityActor ! RequestMessage(
             requesterId = requesterEntityId,
             reactorId = reactorEntityId,
-            request = TestRequest
+            request = request
           )
 
-          verify(extension, timeout(1000)).sendMessage(any[Message]())(any[ActorContext]())
+          verify(persistenceEntitySystem, timeout(10000)).sendMessage(any[Message]())(any[ActorContext]())
 
         }
 
@@ -110,15 +114,3 @@ class PersistenceEntitySpec
   }
 
 }
-
-class TestEntityId(id: String) extends EntityId {
-
-  override def className: Class[_] = classOf[Entity]
-
-  override def persistenceId: String = s"TestEntity-$id"
-
-}
-
-case object TestRequest extends Request
-
-case object TestResponse extends Response

@@ -1,75 +1,14 @@
 package com.github.ekiaa.akka.persistence.entity
 
-import java.util.UUID
-
-import akka.actor.UnboundedStash
+import akka.actor.Props
 import akka.persistence.PersistentActor
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.immutable.HashMap
 
-trait Entity {
+class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) extends PersistentActor with StrictLogging {
 
-  def entityId: EntityId
-
-  def handleIncomingRequest(request: Request): Reaction
-
-  def handleIncomingResponse(response: Response): Reaction
-
-}
-
-trait EntityId extends Serializable {
-
-  def className: Class[_]
-
-  def persistenceId: String
-
-}
-
-trait Message {
-
-  val id: String
-
-  val correlationId: String
-
-  val requesterId: EntityId
-
-  val reactorId: EntityId
-
-}
-
-trait Request extends Serializable
-
-trait Response extends Serializable
-
-case class RequestMessage(id: String = UUID.randomUUID().toString,
-                          correlationId: String = UUID.randomUUID().toString,
-                          requesterId: EntityId,
-                          reactorId: EntityId,
-                          request: Request
-                         ) extends Message
-
-case class ResponseMessage(id: String = UUID.randomUUID().toString,
-                           correlationId: String,
-                           requesterId: EntityId,
-                           reactorId: EntityId,
-                           response: Response
-                          ) extends Message
-
-trait Reaction { val state: Entity }
-case class RequestActor(reactorId: EntityId, request: Request, state: Entity) extends Reaction
-case class ResponseToActor(response: Response, state: Entity) extends Reaction
-case class Ignore(state: Entity) extends Reaction
-
-trait PersistedEvent
-case class IncomingRequest(requestMessage: RequestMessage) extends PersistedEvent
-case class OutgoingResponse(responseMessage: ResponseMessage) extends PersistedEvent
-case class OutgoingRequest(requestMessage: RequestMessage) extends PersistedEvent
-case class IncomingResponse(responseMessage: ResponseMessage) extends PersistedEvent
-
-class PersistenceEntity(entityId: EntityId) extends PersistentActor with StrictLogging {
-
-  var state: Entity = PersistenceEntitySystem.getEntityBuilder.build(entityId, None)
+  var state: Entity = system.build(entityId, None)
 
   var inProcessing: Boolean = false
 
@@ -179,17 +118,24 @@ class PersistenceEntity(entityId: EntityId) extends PersistentActor with StrictL
   private def handleOutgoingRequest(requestMessage: RequestMessage) = {
     persist(OutgoingRequest(requestMessage)) {
       outgoingRequest =>
-        PersistenceEntitySystem(context.system).sendMessage(outgoingRequest.requestMessage)
+        system.sendMessage(outgoingRequest.requestMessage)
     }
   }
 
   private def handleOutgoingResponse(responseMessage: ResponseMessage) = {
     persist(OutgoingResponse(responseMessage)) {
       outgoingResponse =>
-        PersistenceEntitySystem(context.system).sendMessage(outgoingResponse.responseMessage)
+        system.sendMessage(outgoingResponse.responseMessage)
         inProcessing = false
         unstashAll()
     }
   }
+
+}
+
+object PersistenceEntity {
+
+  def props(entityId: EntityId, system: PersistenceEntitySystem): Props =
+    Props(classOf[PersistenceEntity], entityId, system)
 
 }
