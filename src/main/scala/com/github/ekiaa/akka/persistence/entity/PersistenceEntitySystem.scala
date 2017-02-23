@@ -75,7 +75,7 @@ trait EntityId extends Serializable {
 
 }
 
-trait Message {
+trait Message extends Serializable {
 
   val id: String
 
@@ -110,7 +110,7 @@ case class RequestActor(reactorId: EntityId, request: Request, state: Entity) ex
 case class ResponseToActor(response: Response, state: Entity) extends Reaction
 case class Ignore(state: Entity) extends Reaction
 
-trait PersistedEvent
+trait PersistedEvent extends Serializable
 case class IncomingRequest(requestMessage: RequestMessage) extends PersistedEvent
 case class OutgoingResponse(responseMessage: ResponseMessage) extends PersistedEvent
 case class OutgoingRequest(requestMessage: RequestMessage) extends PersistedEvent
