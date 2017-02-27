@@ -45,27 +45,18 @@ class PersistenceEntitySpec
 
     "receive incoming Request message" should {
 
-      "invoke handleIncomingRequest method of Entity" in {
+      "invoke handleIncomingRequest method of Entity" in withEntity { context =>
+        import context._
 
-        val request = createRequest
-        val response = createResponse
-        val requesterId = createEntityId
-        val reactorId = createEntityId
-        val entity = createEntity(reactorId)
-        val system = createSystem
-        buildEntity(system, entity)
-        val actor = createActor(reactorId, system)
-        val requestMessage = createRequestMessage(requesterId, reactorId, request)
+        when(entity.handleIncomingRequest(any[Request])).thenReturn(ResponseToActor(response_1, entity))
 
-        when(entity.handleIncomingRequest(any[Request])).thenReturn(ResponseToActor(response, entity))
-
-        actor ! requestMessage
+        actor ! requestMessage_1
 
         val argument = ArgumentCaptor.forClass[Request, Request](classOf[Request])
 
         verify(entity, timeout(10000)).handleIncomingRequest(argument.capture())
 
-        argument.getValue should ===(request)
+        argument.getValue should ===(request_1)
 
       }
 
@@ -75,30 +66,23 @@ class PersistenceEntitySpec
 
       "it returns ResponseToActor reaction" should {
 
-        "invoke sendMessage method of PersistenceEntitySystem" in {
+        "invoke sendMessage method of PersistenceEntitySystem" in withEntity { context =>
+          import context._
 
-          val request = createRequest
-          val response = createResponse
-          val requesterId = createEntityId
-          val reactorId = createEntityId
-          val entity = createEntity(reactorId)
-          val system = createSystem
-          buildEntity(system, entity)
-          val actor = createActor(reactorId, system)
-          val requestMessage = createRequestMessage(requesterId, reactorId, request)
+          when(entity.handleIncomingRequest(any[Request])).thenReturn(ResponseToActor(response_1, entity))
 
-          when(entity.handleIncomingRequest(any[Request])).thenReturn(ResponseToActor(response, entity))
-
-          actor ! requestMessage
+          actor ! requestMessage_1
 
           val argument = ArgumentCaptor.forClass[Message, ResponseMessage](classOf[ResponseMessage])
 
-          verify(system, timeout(10000)).sendMessage(argument.capture())(any[ActorContext]())
+          verify(entitySystem, timeout(10000).times(1)).sendMessage(argument.capture())(any[ActorContext]())
 
           val message = argument.getValue
-          message.requesterId should ===(requesterId)
-          message.reactorId should ===(reactorId)
-          message.correlationId should ===(requestMessage.correlationId)
+          message.requesterId should ===(entityId_1)
+          message.reactorId should ===(entityId)
+          message.correlationId should ===(requestMessage_1.correlationId)
+          message shouldBe a [ResponseMessage]
+          message.asInstanceOf[ResponseMessage].response should ===(response_1)
 
         }
 
@@ -106,30 +90,22 @@ class PersistenceEntitySpec
 
       "it returns RequestActor reaction" should {
 
-        "invoke sendMessage method of PersistenceEntitySystem with RequestMessage argument" in {
+        "invoke sendMessage method of PersistenceEntitySystem with RequestMessage argument" in withEntity { context =>
+          import context._
 
-          val request = createRequest
-          val request2 = createRequest
-          val requesterId = createEntityId
-          val reactorId = createEntityId
-          val requesterId2 = createEntityId
-          val entity = createEntity(reactorId)
-          val system = createSystem
-          buildEntity(system, entity)
-          val actor = createActor(reactorId, system)
-          val requestMessage = createRequestMessage(requesterId, reactorId, request)
+          when(entity.handleIncomingRequest(any[Request])).thenReturn(RequestActor(entityId_2, request_2, entity))
 
-          when(entity.handleIncomingRequest(any[Request])).thenReturn(RequestActor(requesterId2, request2, entity))
-
-          actor ! requestMessage
+          actor ! requestMessage_1
 
           val argument = ArgumentCaptor.forClass[Message, RequestMessage](classOf[RequestMessage])
 
-          verify(system, timeout(10000)).sendMessage(argument.capture())(any[ActorContext]())
+          verify(entitySystem, timeout(10000).times(1)).sendMessage(argument.capture())(any[ActorContext]())
 
           val message = argument.getValue
-          message.requesterId should ===(reactorId)
-          message.reactorId should ===(requesterId2)
+          message.requesterId should ===(entityId)
+          message.reactorId should ===(entityId_2)
+          message shouldBe a [RequestMessage]
+          message.asInstanceOf[RequestMessage].request should ===(request_2)
 
         }
 
@@ -137,6 +113,124 @@ class PersistenceEntitySpec
 
     }
 
+    "request another Actor after handling incoming Request message" when {
+
+      "receive Response message" should {
+
+        "invoke handleIncomingResponse method of Entity" in withEntity { context =>
+          import context._
+
+          when(entity.handleIncomingRequest(any[Request])).thenReturn(RequestActor(entityId_2, request_2, entity))
+
+          actor ! requestMessage_1
+
+          when(entity.handleIncomingResponse(any[Response])).thenReturn(ResponseToActor(response_2, entity))
+
+          actor ! responseMessage_2
+
+          val argument = ArgumentCaptor.forClass[Response, Response](classOf[Response])
+
+          verify(entity, timeout(10000)).handleIncomingResponse(argument.capture())
+
+          argument.getValue should ===(response_2)
+
+        }
+
+      }
+
+      "invoke handleIncomingResponse of Entity" when {
+
+        "it returns ResponseToActor reaction" should {
+
+          "invoke sendMessage method of PersistenceEntitySystem" in withEntity { context =>
+            import context._
+
+            when(entity.handleIncomingRequest(any[Request])).thenReturn(RequestActor(entityId_2, request_2, entity))
+
+            actor ! requestMessage_1
+
+            when(entity.handleIncomingResponse(any[Response])).thenReturn(ResponseToActor(response_1, entity))
+
+            actor ! responseMessage_2
+
+            val argument = ArgumentCaptor.forClass[Message, ResponseMessage](classOf[ResponseMessage])
+
+            verify(entitySystem, timeout(10000).times(2)).sendMessage(argument.capture())(any[ActorContext]())
+
+            val message = argument.getValue
+            message.requesterId should ===(entityId_1)
+            message.reactorId should ===(entityId)
+            message.correlationId should ===(requestMessage_1.correlationId)
+            message shouldBe a [ResponseMessage]
+            message.asInstanceOf[ResponseMessage].response should ===(response_1)
+
+          }
+
+        }
+
+      }
+
+    }
+
+  }
+
+  case class TestContext(entitySystem: PersistenceEntitySystem,
+                         entityId: EntityId,
+                         entity: Entity,
+                         actor: ActorRef,
+                         entityId_1: EntityId,
+                         request_1: Request,
+                         requestMessage_1: RequestMessage,
+                         response_1: Response,
+                         entityId_2: EntityId,
+                         request_2: Request,
+                         response_2: Response,
+                         responseMessage_2: ResponseMessage)
+
+  def withEntity(testCode: TestContext => Any): Unit = {
+
+    /*   entityId_1       entityId       entityId_2   */
+    /*       |   request_1   |               |        */
+    /*       |-------------->|   request_2   |        */
+    /*       |               |-------------->|        */
+    /*       |               |   response_2  |        */
+    /*       |   response_1  |<--------------|        */
+    /*       |<--------------|               |        */
+    /*       |               |               |        */
+
+    val entitySystem = createSystem
+
+    val entityId = createEntityId
+    val entity = createEntity(entityId)
+    buildEntity(entitySystem, entity)
+    val actor = createActor(entityId, entitySystem)
+
+    val entityId_1 = createEntityId
+    val request_1 = createRequest
+    val requestMessage_1 = createRequestMessage(entityId_1, entityId, request_1)
+    val response_1 = createResponse
+
+    val entityId_2 = createEntityId
+    val request_2 = createRequest
+    val response_2 = createResponse
+    val responseMessage_2 = createResponseMessage(entityId, entityId_2, response_2, UUID.randomUUID().toString)
+
+    testCode(
+      TestContext(
+        entitySystem,
+        entityId,
+        entity,
+        actor,
+        entityId_1,
+        request_1,
+        requestMessage_1,
+        response_1,
+        entityId_2,
+        request_2,
+        response_2,
+        responseMessage_2
+      )
+    )
   }
 
   private def createRequest: Request = {
@@ -178,6 +272,15 @@ class PersistenceEntitySpec
       requesterId = requesterId,
       reactorId = reactorId,
       request = request
+    )
+  }
+
+  private def createResponseMessage(requesterId: EntityId, reactorId: EntityId, response: Response, correlationId: String): ResponseMessage = {
+    ResponseMessage(
+      correlationId = correlationId,
+      requesterId = requesterId,
+      reactorId = reactorId,
+      response = response
     )
   }
 
