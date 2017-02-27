@@ -43,6 +43,23 @@ class PersistenceEntitySpec
 
   "A PersistenceEntity actor" when {
 
+    "started first" should {
+
+      "invoke build method of PersistenceEntitySystem" in withEntity { context =>
+        import context._
+
+        val argument1 = ArgumentCaptor.forClass[EntityId, EntityId](classOf[EntityId])
+        val argument2 = ArgumentCaptor.forClass[Option[Entity], Option[Entity]](classOf[Option[Entity]])
+
+        verify(entitySystem, timeout(10000).times(1)).build(argument1.capture(), argument2.capture())
+
+        argument1.getValue should ===(entityId)
+        argument2.getValue should ===(None)
+
+      }
+
+    }
+
     "receive incoming Request message" should {
 
       "invoke handleIncomingRequest method of Entity" in withEntity { context =>
@@ -54,7 +71,7 @@ class PersistenceEntitySpec
 
         val argument = ArgumentCaptor.forClass[Request, Request](classOf[Request])
 
-        verify(entity, timeout(10000)).handleIncomingRequest(argument.capture())
+        verify(entity, timeout(10000).times(1)).handleIncomingRequest(argument.capture())
 
         argument.getValue should ===(request_1)
 

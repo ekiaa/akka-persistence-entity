@@ -1,7 +1,7 @@
 package com.github.ekiaa.akka.persistence.entity
 
 import akka.actor.Props
-import akka.persistence.PersistentActor
+import akka.persistence.{PersistentActor, RecoveryCompleted, SnapshotOffer}
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.immutable.HashMap
@@ -11,6 +11,8 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
   var state: Entity = system.build(entityId, None)
 
   var inProcessing: Boolean = false
+
+  var lastPersistedEvent: Option[PersistedEvent] = None
 
   var lastReaction: Option[Reaction] = None
 
@@ -24,7 +26,11 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
 
   override def receiveRecover: Receive = {
 
+    case SnapshotOffer(metadata, snapshot: Entity) =>
+
+
     case incomingRequest: IncomingRequest =>
+      lastPersistedEvent = Some(incomingRequest)
       lastIncomingRequest = Some(incomingRequest.requestMessage)
       val reaction = state.handleIncomingRequest(incomingRequest.requestMessage.request)
       lastReaction = Some(reaction)
@@ -32,19 +38,37 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
       inProcessing = true
 
     case outgoingRequest: OutgoingRequest =>
+      lastPersistedEvent = Some(outgoingRequest)
       lastReaction = None
       lastOutgoingRequest = Some(outgoingRequest)
 
     case incomingResponse: IncomingResponse =>
+      lastPersistedEvent = Some(incomingResponse)
       lastOutgoingRequest = None
       val reaction = state.handleIncomingResponse(incomingResponse.responseMessage.response)
       lastReaction = Some(reaction)
       state = reaction.state
 
     case outgoingResponse: OutgoingResponse =>
+      lastPersistedEvent = Some(outgoingResponse)
       lastIncomingRequest = None
       lastReaction = None
       inProcessing = false
+      lastOutgoingResponses += (lastIncomingRequest.get.id -> outgoingResponse.responseMessage)
+
+    case RecoveryCompleted =>
+      lastPersistedEvent match {
+        case Some(incomingRequest: IncomingRequest) =>
+
+        case Some(outgoingRequest: OutgoingRequest) =>
+
+        case Some(incomingResponse: IncomingResponse) =>
+
+        case Some(outgoingResponse: OutgoingResponse) =>
+
+        case None =>
+
+      }
 
   }
 
