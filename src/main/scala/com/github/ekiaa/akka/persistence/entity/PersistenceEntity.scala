@@ -8,7 +8,11 @@ import scala.collection.immutable.HashMap
 
 class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) extends PersistentActor with StrictLogging {
 
-  var state: Entity = system.build(entityId, None)
+  import PersistenceEntity._
+
+  logger.debug("PersistenceEntity[{}]: Created", entityId.persistenceId)
+
+  var entity: Option[Entity] = None
 
   var inProcessing: Boolean = false
 
@@ -27,14 +31,14 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
   override def receiveRecover: Receive = {
 
     case SnapshotOffer(metadata, snapshot: Entity) =>
-
+      entity = Some(system.recovery(snapshot))
 
     case incomingRequest: IncomingRequest =>
       lastPersistedEvent = Some(incomingRequest)
       lastIncomingRequest = Some(incomingRequest.requestMessage)
-      val reaction = state.handleIncomingRequest(incomingRequest.requestMessage.request)
+      val reaction = entity.getOrElse(system.build(entityId)).handleRequest(incomingRequest.requestMessage.request)
       lastReaction = Some(reaction)
-      state = reaction.state
+      entity = Some(reaction.state)
       inProcessing = true
 
     case outgoingRequest: OutgoingRequest =>
@@ -45,18 +49,19 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
     case incomingResponse: IncomingResponse =>
       lastPersistedEvent = Some(incomingResponse)
       lastOutgoingRequest = None
-      val reaction = state.handleIncomingResponse(incomingResponse.responseMessage.response)
+      val reaction = entity.getOrElse(system.build(entityId)).handleResponse(incomingResponse.responseMessage.response)
       lastReaction = Some(reaction)
-      state = reaction.state
+      entity = Some(reaction.state)
 
     case outgoingResponse: OutgoingResponse =>
       lastPersistedEvent = Some(outgoingResponse)
+      lastOutgoingResponses += (lastIncomingRequest.get.id -> outgoingResponse.responseMessage)
       lastIncomingRequest = None
       lastReaction = None
       inProcessing = false
-      lastOutgoingResponses += (lastIncomingRequest.get.id -> outgoingResponse.responseMessage)
 
     case RecoveryCompleted =>
+      logger.debug("PersistenceEntity[{}]: Receive RecoveryCompleted", entityId.persistenceId)
       lastPersistedEvent match {
         case Some(incomingRequest: IncomingRequest) =>
 
@@ -67,7 +72,15 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
         case Some(outgoingResponse: OutgoingResponse) =>
 
         case None =>
+          entity match {
+            case Some(_) =>
 
+            case None =>
+              entity = Some(system.build(entityId))
+          }
+
+        case _ =>
+          throw new Exception(s"PersistenceEntity[$persistenceId]: Not matched lastPersistedEvent[$lastPersistedEvent]")
       }
 
   }
@@ -84,10 +97,18 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
       handleIncomingResponse(responseMessage)
 
     case responseMessage: ResponseMessage =>
-      logger.warn(s"Receive responseMessage[$responseMessage] when not inProcessing")
+      logger.warn("PersistenceEntity[{}]: Receive responseMessage[{}] when not inProcessing", entityId.persistenceId, responseMessage)
+
+    case VerifyStarted =>
+      logger.debug("PersistenceEntity[{}]: Receive VerifyStarted message", entityId.persistenceId)
+      sender() ! Started
+
+    case Terminate =>
+      logger.debug("PersistenceEntity[{}]: Receive Terminate message", entityId.persistenceId)
+      context.stop(self)
 
     case unknown =>
-      logger.warn(s"Receive unknown message: [$unknown]")
+      logger.warn(s"PersistenceEntity[{}]: Receive unknown message: [$unknown]", entityId.persistenceId)
 
   }
 
@@ -95,8 +116,9 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
     inProcessing = true
     persist(IncomingRequest(requestMessage)) {
       incomingRequest =>
+        require(entity.isDefined, s"PersistenceEntity[$persistenceId]: entity should be defined when invoked handleIncomingRequest with requestMessage[$requestMessage]")
         lastIncomingRequest = Some(incomingRequest.requestMessage)
-        val reaction = state.handleIncomingRequest(incomingRequest.requestMessage.request)
+        val reaction = entity.get.handleRequest(incomingRequest.requestMessage.request)
         handleReaction(reaction)
     }
   }
@@ -104,7 +126,8 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
   private def handleIncomingResponse(responseMessage: ResponseMessage) = {
     persist(IncomingResponse(responseMessage)) {
       incomingResponse =>
-        val reaction = state.handleIncomingResponse(incomingResponse.responseMessage.response)
+        require(entity.isDefined, s"PersistenceEntity[$persistenceId]: entity should be defined when invoked handleIncomingResponse with responseMessage[$responseMessage]")
+        val reaction = entity.get.handleResponse(incomingResponse.responseMessage.response)
         handleReaction(reaction)
     }
   }
@@ -113,7 +136,7 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
 
     reaction match {
       case action: RequestActor =>
-        state = action.state
+        entity = Some(action.state)
         val requestMessage = RequestMessage(
           requesterId = entityId,
           reactorId = action.reactorId,
@@ -122,7 +145,7 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
         handleOutgoingRequest(requestMessage)
 
       case action: ResponseToActor =>
-        state = action.state
+        entity = Some(action.state)
         val requesterId = lastIncomingRequest.get.requesterId
         val correlationId = lastIncomingRequest.get.correlationId
         val responseMessage = ResponseMessage(
@@ -134,7 +157,7 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
         handleOutgoingResponse(responseMessage)
 
       case action: Ignore =>
-        state = action.state
+        entity = Some(action.state)
 
     }
   }
@@ -158,6 +181,12 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
 }
 
 object PersistenceEntity {
+
+  case object Terminate
+
+  case object VerifyStarted
+
+  case object Started
 
   def props(entityId: EntityId, system: PersistenceEntitySystem): Props =
     Props(classOf[PersistenceEntity], entityId, system)

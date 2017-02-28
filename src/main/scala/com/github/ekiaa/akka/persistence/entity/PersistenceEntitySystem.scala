@@ -50,7 +50,9 @@ import akka.actor.{ActorContext, ActorSystem, ExtendedActorSystem, Extension, Ex
 
 trait PersistenceEntitySystem {
 
-  def build(entityId: EntityId, entitySnapshot: Option[Entity]): Entity
+  def build(entityId: EntityId): Entity
+
+  def recovery(snapshot: Entity): Entity
 
   def sendMessage(message: Message)(implicit context: ActorContext): Unit
 
@@ -61,15 +63,15 @@ trait Entity {
 
   def entityId: EntityId
 
-  def handleIncomingRequest(request: Request): Reaction
+  def init(): Entity
 
-  def handleIncomingResponse(response: Response): Reaction
+  def handleRequest(request: Request): Reaction
+
+  def handleResponse(response: Response): Reaction
 
 }
 
 trait EntityId extends Serializable {
-
-  def className: Class[_]
 
   def persistenceId: String
 
