@@ -170,6 +170,67 @@ class PersistenceEntitySpec
 
           }
 
+          "store new entity state in Reaction returned by handleRequest" in {}
+
+          "resend it if this is a last recovered event" in {
+
+          }
+
+        }
+
+        "recovery outgoing Request" should {
+
+          "resend it if this is a last recovered event" in {}
+
+        }
+
+        "recovery incoming Response" should {
+
+          "invoke handleResponse method of Entity" in {}
+
+          "store new entity state in Reaction returned by handleResponse" in {}
+
+          "apply Reaction returned by handleResponse if this is a last recovered event" in {}
+
+        }
+
+        "recovery outgoing Response" should {
+
+          "return it if in future will be received previously processed Request" in withEntity { context =>
+            import context._
+
+            val actor = createActor(entityId, entitySystem)
+
+            when(entity.handleRequest(any[Request])).thenReturn(ResponseToActor(response_1, entity))
+
+            actor ! requestMessage_1
+
+            terminateActor(actor)
+
+            val sameActor = createActor(entityId, entitySystem)
+
+            sameActor ! requestMessage_1
+
+            val argument = ArgumentCaptor.forClass[Message, ResponseMessage](classOf[ResponseMessage])
+
+            verify(entitySystem, timeout(10000).times(2)).sendMessage(argument.capture())(any[ActorContext]())
+
+            argument.getValue.isInstanceOf[ResponseMessage] should ===(true)
+            val responseMessage = argument.getValue.asInstanceOf[ResponseMessage]
+            responseMessage.response.isInstanceOf[TestResponse] should ===(true)
+            val response = responseMessage.response.asInstanceOf[TestResponse]
+            response.id should ===(response_1.asInstanceOf[TestResponse].id)
+
+          }
+
+        }
+
+      }
+
+      "recovered snapshot" should {
+
+        "invoke recovery method of PersistenceEntitySystem" in {
+
         }
 
       }
@@ -322,7 +383,7 @@ class PersistenceEntitySpec
   }
 
   private def createResponse: Response = {
-    mock[Response](withSettings().serializable())
+    TestResponse()
   }
 
   private def createEntityId: EntityId = {
@@ -396,3 +457,5 @@ class PersistenceEntitySpec
 }
 
 case class TestRequest(id: String = UUID.randomUUID().toString) extends Request with Serializable
+
+case class TestResponse(id: String = UUID.randomUUID().toString) extends Response with Serializable

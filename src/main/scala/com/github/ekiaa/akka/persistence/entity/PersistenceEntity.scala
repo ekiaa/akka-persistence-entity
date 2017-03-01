@@ -28,54 +28,71 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
 
   override def persistenceId: String = entityId.persistenceId
 
+  override def preStart(): Unit = {
+    logger.debug("PersistenceEntity[{}]: Started", entityId.persistenceId)
+    super.preStart()
+  }
+
   override def receiveRecover: Receive = {
 
     case SnapshotOffer(metadata, snapshot: Entity) =>
+      logger.trace("PersistenceEntity[{}]: Recovered snapshot[{}]", entityId.persistenceId, snapshot)
       entity = Some(system.recovery(snapshot))
 
     case incomingRequest: IncomingRequest =>
+      logger.trace("PersistenceEntity[{}]: Recovered incomingRequest[{}]", entityId.persistenceId, incomingRequest)
+      inProcessing = true
+      val reaction = entity.getOrElse(system.build(entityId)).handleRequest(incomingRequest.requestMessage.request)
+      entity = Some(reaction.state)
       lastPersistedEvent = Some(incomingRequest)
       lastIncomingRequest = Some(incomingRequest.requestMessage)
-      val reaction = entity.getOrElse(system.build(entityId)).handleRequest(incomingRequest.requestMessage.request)
       lastReaction = Some(reaction)
-      entity = Some(reaction.state)
-      inProcessing = true
 
     case outgoingRequest: OutgoingRequest =>
+      logger.trace("PersistenceEntity[{}]: Recovered outgoingRequest[{}]", entityId.persistenceId, outgoingRequest)
       lastPersistedEvent = Some(outgoingRequest)
-      lastReaction = None
       lastOutgoingRequest = Some(outgoingRequest)
+      lastReaction = None
 
     case incomingResponse: IncomingResponse =>
+      logger.trace("PersistenceEntity[{}]: Recovered incomingResponse[{}]", entityId.persistenceId, incomingResponse)
+      require(entity.isDefined, s"PersistenceEntity[$persistenceId]: entity should be defined when recovered incomingResponse[$incomingResponse]")
+      val reaction = entity.get.handleResponse(incomingResponse.responseMessage.response)
+      entity = Some(reaction.state)
       lastPersistedEvent = Some(incomingResponse)
       lastOutgoingRequest = None
-      val reaction = entity.getOrElse(system.build(entityId)).handleResponse(incomingResponse.responseMessage.response)
       lastReaction = Some(reaction)
-      entity = Some(reaction.state)
 
     case outgoingResponse: OutgoingResponse =>
-      lastPersistedEvent = Some(outgoingResponse)
+      logger.trace("PersistenceEntity[{}]: Recovered outgoingResponse[{}]", entityId.persistenceId, outgoingResponse)
+      inProcessing = false
       lastOutgoingResponses += (lastIncomingRequest.get.id -> outgoingResponse.responseMessage)
+      lastPersistedEvent = Some(outgoingResponse)
       lastIncomingRequest = None
       lastReaction = None
-      inProcessing = false
 
     case RecoveryCompleted =>
       logger.debug("PersistenceEntity[{}]: Receive RecoveryCompleted", entityId.persistenceId)
       lastPersistedEvent match {
         case Some(incomingRequest: IncomingRequest) =>
+          logger.trace("PersistenceEntity[{}]: Complete recovering with last event incomingRequest[{}]", entityId.persistenceId, incomingRequest)
 
         case Some(outgoingRequest: OutgoingRequest) =>
+          logger.trace("PersistenceEntity[{}]: Complete recovering with last event outgoingRequest[{}]", entityId.persistenceId, outgoingRequest)
 
         case Some(incomingResponse: IncomingResponse) =>
+          logger.trace("PersistenceEntity[{}]: Complete recovering with last event incomingResponse[{}]", entityId.persistenceId, incomingResponse)
 
         case Some(outgoingResponse: OutgoingResponse) =>
+          logger.trace("PersistenceEntity[{}]: Complete recovering with last event outgoingResponse[{}]", entityId.persistenceId, outgoingResponse)
 
         case None =>
+          logger.trace("PersistenceEntity[{}]: Complete recovering without any event", entityId.persistenceId)
           entity match {
-            case Some(_) =>
-
+            case Some(e) =>
+              logger.trace("PersistenceEntity[{}]: Complete recovering with entity[{}]", entityId.persistenceId, e)
             case None =>
+              logger.trace("PersistenceEntity[{}]: Complete recovering without entity", entityId.persistenceId)
               entity = Some(system.build(entityId))
           }
 
@@ -100,11 +117,11 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
       logger.warn("PersistenceEntity[{}]: Receive responseMessage[{}] when not inProcessing", entityId.persistenceId, responseMessage)
 
     case VerifyStarted =>
-      logger.debug("PersistenceEntity[{}]: Receive VerifyStarted message", entityId.persistenceId)
+      logger.trace("PersistenceEntity[{}]: Receive VerifyStarted message", entityId.persistenceId)
       sender() ! Started
 
     case Terminate =>
-      logger.debug("PersistenceEntity[{}]: Receive Terminate message", entityId.persistenceId)
+      logger.trace("PersistenceEntity[{}]: Receive Terminate message", entityId.persistenceId)
       context.stop(self)
 
     case unknown =>
@@ -112,10 +129,17 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
 
   }
 
+  override def postStop(): Unit = {
+    logger.debug("PersistenceEntity[{}]: Stopped", entityId.persistenceId)
+    super.postStop()
+  }
+
   private def handleIncomingRequest(requestMessage: RequestMessage) = {
+    logger.trace("PersistenceEntity[{}]: Invoked handleIncomingRequest with requestMessage[{}]", entityId.persistenceId, requestMessage)
     inProcessing = true
     persist(IncomingRequest(requestMessage)) {
       incomingRequest =>
+        logger.trace("PersistenceEntity[{}]: Persisted incomingRequest[{}]", entityId.persistenceId, incomingRequest)
         require(entity.isDefined, s"PersistenceEntity[$persistenceId]: entity should be defined when invoked handleIncomingRequest with requestMessage[$requestMessage]")
         lastIncomingRequest = Some(incomingRequest.requestMessage)
         val reaction = entity.get.handleRequest(incomingRequest.requestMessage.request)
@@ -124,8 +148,10 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
   }
 
   private def handleIncomingResponse(responseMessage: ResponseMessage) = {
+    logger.trace("PersistenceEntity[{}]: Invoked handleIncomingResponse with responseMessage[{}]", entityId.persistenceId, responseMessage)
     persist(IncomingResponse(responseMessage)) {
       incomingResponse =>
+        logger.trace("PersistenceEntity[{}]: Persisted incomingResponse[{}]", entityId.persistenceId, incomingResponse)
         require(entity.isDefined, s"PersistenceEntity[$persistenceId]: entity should be defined when invoked handleIncomingResponse with responseMessage[$responseMessage]")
         val reaction = entity.get.handleResponse(incomingResponse.responseMessage.response)
         handleReaction(reaction)
@@ -133,7 +159,7 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
   }
 
   private def handleReaction(reaction: Reaction): Unit = {
-
+    logger.trace("PersistenceEntity[{}]: Invoked handleReaction with reaction[{}]", entityId.persistenceId, reaction)
     reaction match {
       case action: RequestActor =>
         entity = Some(action.state)
@@ -163,15 +189,19 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
   }
 
   private def handleOutgoingRequest(requestMessage: RequestMessage) = {
+    logger.trace("PersistenceEntity[{}]: Invoked handleOutgoingRequest with responseMessage[{}]", entityId.persistenceId, requestMessage)
     persist(OutgoingRequest(requestMessage)) {
       outgoingRequest =>
+        logger.trace("PersistenceEntity[{}]: Persisted outgoingRequest[{}]", entityId.persistenceId, outgoingRequest)
         system.sendMessage(outgoingRequest.requestMessage)
     }
   }
 
   private def handleOutgoingResponse(responseMessage: ResponseMessage) = {
+    logger.trace("PersistenceEntity[{}]: Invoked handleOutgoingResponse with responseMessage[{}]", entityId.persistenceId, responseMessage)
     persist(OutgoingResponse(responseMessage)) {
       outgoingResponse =>
+        logger.trace("PersistenceEntity[{}]: Persisted outgoingResponse[{}]", entityId.persistenceId, outgoingResponse)
         system.sendMessage(outgoingResponse.responseMessage)
         inProcessing = false
         unstashAll()

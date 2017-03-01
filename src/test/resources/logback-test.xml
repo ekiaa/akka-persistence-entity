@@ -7,7 +7,7 @@
         </encoder>
     </appender>
 
-    <logger name="com.github.ekiaa.akka.persistence.entity" level="DEBUG"/>
+    <logger name="com.github.ekiaa.akka.persistence.entity" level="TRACE"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT" />
