@@ -164,15 +164,42 @@ class PersistenceEntitySpec
             verify(entity, timeout(10000).times(2)).handleRequest(argument.capture())
 
             val request = argument.getValue
-            request.isInstanceOf[TestRequest] should ===(true)
-            val testRequest = request.asInstanceOf[TestRequest]
-            testRequest.id should ===(request_1.asInstanceOf[TestRequest].id)
+            request shouldBe a [TestRequest]
+            request.asInstanceOf[TestRequest].id should ===(request_1.asInstanceOf[TestRequest].id)
 
           }
 
-          "store new entity state in Reaction returned by handleRequest" in {}
+          "apply Reaction returned by handleRequest if this is a last recovered event" in withEntity { context =>
+            import context._
 
-          "resend it if this is a last recovered event" in {
+            val actor = createActor(entityId, entitySystem)
+
+            watch(actor)
+
+            actor ! requestMessage_1
+
+//            terminateActor(actor)
+            expectTerminated(actor, FiniteDuration(10, TimeUnit.SECONDS))
+
+            when(entity.handleRequest(any[Request])).thenReturn(ResponseToActor(response_1, entity))
+
+            createActor(entityId, entitySystem)
+
+            val argument = ArgumentCaptor.forClass[Message, ResponseMessage](classOf[ResponseMessage])
+
+            verify(entitySystem, timeout(10000).times(1)).sendMessage(argument.capture())(any[ActorContext]())
+
+            val message = argument.getValue
+            message shouldBe a [ResponseMessage]
+            val response = message.asInstanceOf[ResponseMessage].response
+            response shouldBe a [TestResponse]
+            response.asInstanceOf[TestResponse].id should ===(response_1.asInstanceOf[TestResponse].id)
+
+          }
+
+
+          "store new entity state from Reaction returned by handleRequest" in withEntity { context =>
+            import context._
 
           }
 
@@ -180,17 +207,25 @@ class PersistenceEntitySpec
 
         "recovery outgoing Request" should {
 
-          "resend it if this is a last recovered event" in {}
+          "resend it if this is a last recovered event" in {
+
+          }
 
         }
 
         "recovery incoming Response" should {
 
-          "invoke handleResponse method of Entity" in {}
+          "invoke handleResponse method of Entity" in {
 
-          "store new entity state in Reaction returned by handleResponse" in {}
+          }
 
-          "apply Reaction returned by handleResponse if this is a last recovered event" in {}
+          "store new entity state in Reaction returned by handleResponse" in {
+
+          }
+
+          "apply Reaction returned by handleResponse if this is a last recovered event" in {
+
+          }
 
         }
 
@@ -393,6 +428,8 @@ class PersistenceEntitySpec
   }
 
   private def createEntity(entityId: EntityId): Entity = {
+//    val entity = TestEntity(entityId)
+//    spy(entity)
     val entity = mock[Entity]
     when(entity.entityId).thenReturn(entityId)
     entity
@@ -459,3 +496,10 @@ class PersistenceEntitySpec
 case class TestRequest(id: String = UUID.randomUUID().toString) extends Request with Serializable
 
 case class TestResponse(id: String = UUID.randomUUID().toString) extends Response with Serializable
+
+//case class TestEntity(entityId: EntityId) extends Entity with Serializable {
+//  val id: String = UUID.randomUUID().toString
+//  override def init(): Entity = ???
+//  override def handleRequest(request: Request): Reaction = ???
+//  override def handleResponse(response: Response): Reaction = ???
+//}

@@ -76,15 +76,21 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
       lastPersistedEvent match {
         case Some(incomingRequest: IncomingRequest) =>
           logger.trace("PersistenceEntity[{}]: Complete recovering with last event incomingRequest[{}]", entityId.persistenceId, incomingRequest)
+          require(lastReaction.isDefined, s"PersistenceEntity[$persistenceId]: lastReaction should be defined when trying replay reaction on incomingRequest[$incomingRequest]")
+          handleReaction(lastReaction.get)
 
         case Some(outgoingRequest: OutgoingRequest) =>
           logger.trace("PersistenceEntity[{}]: Complete recovering with last event outgoingRequest[{}]", entityId.persistenceId, outgoingRequest)
+          system.sendMessage(outgoingRequest.requestMessage)
 
         case Some(incomingResponse: IncomingResponse) =>
           logger.trace("PersistenceEntity[{}]: Complete recovering with last event incomingResponse[{}]", entityId.persistenceId, incomingResponse)
+          require(lastReaction.isDefined, s"PersistenceEntity[$persistenceId]: lastReaction should be defined when trying replay reaction on incomingResponse[$incomingResponse]")
+          handleReaction(lastReaction.get)
 
         case Some(outgoingResponse: OutgoingResponse) =>
           logger.trace("PersistenceEntity[{}]: Complete recovering with last event outgoingResponse[{}]", entityId.persistenceId, outgoingResponse)
+          system.sendMessage(outgoingResponse.responseMessage)
 
         case None =>
           logger.trace("PersistenceEntity[{}]: Complete recovering without any event", entityId.persistenceId)
