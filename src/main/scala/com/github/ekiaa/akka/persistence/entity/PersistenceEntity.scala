@@ -90,7 +90,6 @@ class PersistenceEntity(entityId: EntityId, system: PersistenceEntitySystem) ext
 
         case Some(outgoingResponse: OutgoingResponse) =>
           logger.trace("PersistenceEntity[{}]: Complete recovering with last event outgoingResponse[{}]", entityId.persistenceId, outgoingResponse)
-          system.sendMessage(outgoingResponse.responseMessage)
 
         case None =>
           logger.trace("PersistenceEntity[{}]: Complete recovering without any event", entityId.persistenceId)

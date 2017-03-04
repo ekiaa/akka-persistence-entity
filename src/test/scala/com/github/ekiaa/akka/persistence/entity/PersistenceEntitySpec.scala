@@ -178,7 +178,6 @@ class PersistenceEntitySpec
 
             actor ! requestMessage_1
 
-//            terminateActor(actor)
             expectTerminated(actor, FiniteDuration(10, TimeUnit.SECONDS))
 
             when(entity.handleRequest(any[Request])).thenReturn(ResponseToActor(response_1, entity))
@@ -197,9 +196,38 @@ class PersistenceEntitySpec
 
           }
 
-
           "store new entity state from Reaction returned by handleRequest" in withEntity { context =>
             import context._
+
+            val actor = createActor(entityId, entitySystem)
+
+            val testEntity = createEntity(entityId)
+
+            when(entity.handleRequest(any[Request])).thenReturn(ResponseToActor(response_1, testEntity))
+
+            actor ! requestMessage_1
+
+            verify(entitySystem, timeout(10000).times(1)).sendMessage(any[Message]())(any[ActorContext]())
+
+            terminateActor(actor)
+
+            val sameActor = createActor(entityId, entitySystem)
+
+            val response_3 = createResponse
+
+            when(testEntity.handleRequest(any[Request])).thenReturn(ResponseToActor(response_3, testEntity))
+
+            val request_3 = createRequest
+            val requestMessage_3 = createRequestMessage(entityId_1, entityId, request_3)
+
+            sameActor ! requestMessage_3
+
+            val argument = ArgumentCaptor.forClass[Request, Request](classOf[Request])
+
+            verify(testEntity, timeout(10000).times(1)).handleRequest(argument.capture())
+
+            val request = argument.getValue
+            request should ===(request_3)
 
           }
 
@@ -207,7 +235,39 @@ class PersistenceEntitySpec
 
         "recovery outgoing Request" should {
 
-          "resend it if this is a last recovered event" in {
+          "resend it if this is a last recovered event" in withEntity { context =>
+            import context._
+
+            val actor = createActor(entityId, entitySystem)
+
+            when(entity.handleRequest(any[Request])).thenReturn(RequestActor(entityId_2, request_2, entity))
+
+            actor ! requestMessage_1
+
+            val argument1 = ArgumentCaptor.forClass[Message, RequestMessage](classOf[RequestMessage])
+
+            verify(entitySystem, timeout(10000).times(1)).sendMessage(argument1.capture())(any[ActorContext]())
+
+            val message1 = argument1.getValue
+            message1 shouldBe a [RequestMessage]
+            val sentRequestMessage = message1.asInstanceOf[RequestMessage]
+            sentRequestMessage.request should ===(request_2)
+
+            terminateActor(actor)
+
+            val sameActor = createActor(entityId, entitySystem)
+
+            val argument2 = ArgumentCaptor.forClass[Message, RequestMessage](classOf[RequestMessage])
+
+            verify(entitySystem, timeout(10000).times(2)).sendMessage(argument2.capture())(any[ActorContext]())
+
+            val message2 = argument2.getValue
+            message2 shouldBe a [RequestMessage]
+            val resendRequestMessage =  message2.asInstanceOf[RequestMessage]
+            resendRequestMessage.id should ===(sentRequestMessage.id)
+            resendRequestMessage.correlationId should ===(sentRequestMessage.correlationId)
+            resendRequestMessage.requesterId.persistenceId should ===(sentRequestMessage.requesterId.persistenceId)
+            resendRequestMessage.reactorId.persistenceId should ===(sentRequestMessage.reactorId.persistenceId)
 
           }
 
@@ -497,9 +557,8 @@ case class TestRequest(id: String = UUID.randomUUID().toString) extends Request 
 
 case class TestResponse(id: String = UUID.randomUUID().toString) extends Response with Serializable
 
-//case class TestEntity(entityId: EntityId) extends Entity with Serializable {
-//  val id: String = UUID.randomUUID().toString
-//  override def init(): Entity = ???
-//  override def handleRequest(request: Request): Reaction = ???
-//  override def handleResponse(response: Response): Reaction = ???
-//}
+case class TestEntity(id: String, entityId: EntityId) extends Entity with Serializable {
+  override def init(): Entity = ???
+  override def handleRequest(request: Request): Reaction = ???
+  override def handleResponse(response: Response): Reaction = ???
+}
