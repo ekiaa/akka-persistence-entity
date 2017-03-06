@@ -488,8 +488,6 @@ class PersistenceEntitySpec
   }
 
   private def createEntity(entityId: EntityId): Entity = {
-//    val entity = TestEntity(entityId)
-//    spy(entity)
     val entity = mock[Entity]
     when(entity.entityId).thenReturn(entityId)
     entity
@@ -561,4 +559,5 @@ case class TestEntity(id: String, entityId: EntityId) extends Entity with Serial
   override def init(): Entity = ???
   override def handleRequest(request: Request): Reaction = ???
   override def handleResponse(response: Response): Reaction = ???
+  override def handleEvent(event: Event): Reaction = ???
 }

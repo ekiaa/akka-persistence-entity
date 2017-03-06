@@ -25,15 +25,17 @@ trait Entity {
 
   def handleResponse(response: Response): Reaction
 
+  def handleEvent(event: Event): Reaction
+
 }
 
-trait EntityId extends Serializable {
+trait EntityId {
 
   def persistenceId: String
 
 }
 
-trait Message extends Serializable {
+trait Message {
 
   val id: String
 
@@ -45,9 +47,11 @@ trait Message extends Serializable {
 
 }
 
-trait Request extends Serializable
+trait Request
 
-trait Response extends Serializable
+trait Response
+
+trait Event
 
 case class RequestMessage(id: String = UUID.randomUUID().toString,
                           correlationId: String = UUID.randomUUID().toString,
@@ -63,15 +67,23 @@ case class ResponseMessage(id: String = UUID.randomUUID().toString,
                            response: Response
                           ) extends Message
 
-trait Reaction {
-  val state: Entity
-}
+case class EventMessage(id: String = UUID.randomUUID().toString,
+                        correlationId: String,
+                        requesterId: EntityId,
+                        reactorId: EntityId,
+                        event: Event) extends Message
 
-case class RequestActor(reactorId: EntityId, request: Request, state: Entity) extends Reaction
+case class EventConfirmed(id: String = UUID.randomUUID().toString,
+                          correlationId: String,
+                          requesterId: EntityId,
+                          reactorId: EntityId,
+                          eventId: String) extends Message
 
-case class ResponseToActor(response: Response, state: Entity) extends Reaction
-
-case class Ignore(state: Entity) extends Reaction
+case class EventProcessed(id: String = UUID.randomUUID().toString,
+                          correlationId: String,
+                          requesterId: EntityId,
+                          reactorId: EntityId,
+                          eventId: String) extends Message
 
 trait PersistedEvent extends Serializable
 
@@ -82,3 +94,22 @@ case class OutgoingResponse(responseMessage: ResponseMessage) extends PersistedE
 case class OutgoingRequest(requestMessage: RequestMessage) extends PersistedEvent
 
 case class IncomingResponse(responseMessage: ResponseMessage) extends PersistedEvent
+
+case class IncomingEvent(eventMessage: EventMessage) extends PersistedEvent
+
+case class OutgoingEvent(eventMessage: EventMessage) extends PersistedEvent
+
+case class IncomingEventConfirmed(eventConfirmed: EventConfirmed) extends PersistedEvent
+
+case class OutgoingEventConfirmed(eventConfirmed: EventConfirmed) extends PersistedEvent
+
+case class IncomingEventProcessed(eventProcessed: EventProcessed) extends PersistedEvent
+
+
+trait Reaction { val state: Entity }
+
+case class RequestActor(reactorId: EntityId, request: Request, state: Entity) extends Reaction
+
+case class ResponseToActor(response: Response, state: Entity) extends Reaction
+
+case class NoReply(state: Entity) extends Reaction
